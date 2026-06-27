@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>算数マルチプレイ対決</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #f0f4f8; color: #333; text-align: center; margin: 0; padding: 20px; }
+    .container { max-width: 600px; margin: 40px auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    h1 { color: #2b6cb0; }
+    button { background: #3182ce; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 6px; cursor: pointer; margin: 10px; transition: 0.2s; }
+    button:hover { background: #2b6cb0; }
+    input, select { padding: 12px; font-size: 16px; border: 2px solid #cbd5e0; border-radius: 6px; width: 80%; max-width: 300px; margin: 10px 0; text-align: center; }
+    .screen { display: none; }
+    .active { display: block; }
+    .pin-display { font-size: 48px; font-weight: bold; color: #2b6cb0; letter-spacing: 4px; margin: 20px 0; }
+    .question-display { font-size: 36px; font-weight: bold; margin: 30px 0; color: #2d3748; }
+    .player-list, .ranking-list { list-style: none; padding: 0; text-align: left; max-width: 400px; margin: 20px auto; }
+    .player-list li, .ranking-list li { background: #edf2f7; padding: 10px 15px; margin-bottom: 8px; border-radius: 6px; display: flex; justify-content: space-between; font-size: 18px; }
+    .ranking-list li:nth-child(1) { background: #fef3c7; border: 2px solid #f59e0b; font-weight: bold; } /* 1位を目立たせる */
+    .result-alert { font-size: 24px; font-weight: bold; margin: 20px; }
+    .correct { color: #38a169; }
+    .incorrect { color: #e53e3e; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>🔢 算数マルチ対決 ⚔️</h1>
+
+    <div id="screen-start" class="screen active">
+      <h3>部屋を作る（先生・ホスト）</h3>
+      <select id="select-grade">
+        <option value="1">小学1年生 (たしざん)</option>
+        <option value="2">小学2年生 (かけ算九九)</option>
+        <option value="3">小学3年生 (わり算)</option>
+        <option value="4">小学4年生 (3桁×2桁)</option>
+        <option value="5">小学5年生 (小数のわり算)</option>
+        <option value="6">小学6年生 (比とXの計算)</option>
+      </select><br>
+      <button onclick="createRoom()">部屋を開設する</button>
+      <hr style="margin:30px 0; border:0; border-top:1px solid #cbd5e0;">
+      <h3>ゲームに参加する（生徒）</h3>
+      <input type="text" id="input-pin" placeholder="4桁のPINコード" maxlength="4"><br>
+      <input type="text" id="input-name" placeholder="あなたのなまえ" maxlength="10"><br>
+      <button onclick="joinRoom()">参 戦</button>
+    </div>
+
+    <div id="screen-host-wait" class="screen">
+      <p>生徒にこのPINコードを伝えてください：</p>
+      <div id="host-pin" class="pin-display">----</div>
+      <p>参加中のメンバー (<span id="player-count">0</span>/30人):</p>
+      <ul id="host-player-list" class="player-list"></ul>
+      <button onclick="nextQuestion()">ゲームをスタートする</button>
+    </div>
+
+    <div id="screen-player-wait" class="screen">
+      <p>部屋に入りました！先生がゲームを始めるまでお待ちください...</p>
+      <div id="player-pin-view" style="font-size: 20px; color: #718096;"></div>
+    </div>
+
+    <div id="screen-game" class="screen">
+      <div id="view-for-host" style="display:none;">
+        <p>📊 生徒たちが挑戦中！画面に問題が表示されています。</p>
+        <button onclick="nextQuestion()">次の問題へ一斉に進む ➡️</button>
+      </div>
+      
+      <div id="view-for-player" style="display:none;">
+        <div id="game-question" class="question-display">問題を取得中...</div>
+        <div id="player-input-area">
+          <input type="text" id="input-answer" placeholder="こたえを入力" autocomplete="off"><br>
+          <button onclick="submitAnswer()">こたえを送信！</button>
+        </div>
+        <div id="player-result-area" class="result-alert"></div>
+      </div>
+
+      <hr style="margin:30px 0; border:0; border-top:1px solid #cbd5e0;">
+      <h3>リアルタイム順位表</h3>
+      <ol id="game-ranking" class="ranking-list"></ol>
+    </div>
+  </div>
+
+  <script>
+    // 学パソのファイアウォール・プロキシを回避するため通信方法を厳密に制限指定
+    const socket = io({
+      transports: ['polling', 'websocket']
+    });
+
+    let currentPin = '';
+    let isHost = false;
+
+    // 画面切り替えユーティリティ
+    function changeScreen(screenId) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.getElementById(screenId).classList.add('active');
+    }
+
+    // 【ホスト】部屋を作る
+    function createRoom() {
+      const grade = document.getElementById('select-grade').value;
+      isHost = true;
+      socket.emit('create-room', grade);
+    }
+
+    socket.on('room-created', (pin) => {
+      currentPin = pin;
+      document.getElementById('host-pin').innerText = pin;
+      changeScreen('screen-host-wait');
+    });
+
+    // 【生徒】部屋に入る
+    function joinRoom() {
+      const pin = document.getElementById('input-pin').value.trim();
+      const name = document.getElementById('input-name').value.trim();
+      if(!pin || !name) return alert('PINコードとなまえを入力してください');
+      
+      currentPin = pin;
+      isHost = false;
+      socket.emit('join-room', { pin, name });
+    }
+
+    // 生徒側の待機画面移行
+    socket.on('update-players', (players) => {
+      if (isHost) {
+        document.getElementById('player-count').innerText = players.length;
+        const list = document.getElementById('host-player-list');
+        list.innerHTML = players.map(p => `<li><span>👤 ${p.name}</span><span>準備完了</span></li>`).join('');
+      } else {
+        document.getElementById('player-pin-view').innerText = `ルームPIN: ${currentPin} / 参加人数: ${players.length}人`;
+        changeScreen('screen-player-wait');
+      }
+    });
+
+    // 【ホスト】次の問題を配信
+    function nextQuestion() {
+      socket.emit('next-question', currentPin);
+    }
+
+    // 【共通】問題画面への切り替え
+    socket.on('show-question', (data) => {
+      changeScreen('screen-game');
+      if (isHost) {
+        document.getElementById('view-for-host').style.display = 'block';
+        document.getElementById('view-for-player').style.display = 'none';
+      } else {
+        document.getElementById('view-for-host').style.display = 'none';
+        document.getElementById('view-for-player').style.display = 'block';
+        
+        // 生徒用入力欄のリセット
+        document.getElementById('game-question').innerText = data.question;
+        document.getElementById('input-answer').value = '';
+        document.getElementById('input-answer').disabled = false;
+        document.getElementById('player-input-area').style.display = 'block';
+        document.getElementById('player-result-area').innerHTML = '';
+      }
+    });
+
+    // 【生徒】答えを送信
+    function submitAnswer() {
+      const ans = document.getElementById('input-answer').value.trim();
+      if(!ans) return;
+      document.getElementById('input-answer').disabled = true;
+      document.getElementById('player-input-area').style.display = 'none';
+      socket.emit('submit-answer', { pin: currentPin, answer: ans });
+    }
+
+    // 【生徒】答えの判定を受け取る
+    socket.on('answer-result', (data) => {
+      const resultArea = document.getElementById('player-result-area');
+      if(data.isCorrect) {
+        resultArea.innerHTML = '<span class="correct">⭕ 正解！ (+10点)</span>';
+      } else {
+        resultArea.innerHTML = `<span class="incorrect">❌ 不正解... (正解は: ${data.correctAnswer})</span>`;
+      }
+    });
+
+    // 【共通】ランキングのリアルタイム更新
+    socket.on('update-ranking', (ranking) => {
+      const rankingList = document.getElementById('game-ranking');
+      rankingList.innerHTML = ranking.map((p, index) => 
+        `<li><span>${index + 1}位: ${p.name}</span><span>${p.score} 点</span></li>`
+      ).join('');
+    });
+
+    // エラーハンドリング
+    socket.on('error-msg', (msg) => {
+      alert(msg);
+      window.location.reload();
+    });
+  </script>
+</body>
+</html>
