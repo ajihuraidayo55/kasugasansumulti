@@ -3,196 +3,218 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>算数マルチプレイ対決</title>
+  <title>Kasuga Multi-SNS</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
-    body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #f0f4f8; color: #333; text-align: center; margin: 0; padding: 20px; }
-    .container { max-width: 600px; margin: 40px auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-    h1 { color: #2b6cb0; }
-    button { background: #3182ce; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 6px; cursor: pointer; margin: 10px; transition: 0.2s; }
-    button:hover { background: #2b6cb0; }
-    input, select { padding: 12px; font-size: 16px; border: 2px solid #cbd5e0; border-radius: 6px; width: 80%; max-width: 300px; margin: 10px 0; text-align: center; }
-    .screen { display: none; }
-    .active { display: block; }
-    .pin-display { font-size: 48px; font-weight: bold; color: #2b6cb0; letter-spacing: 4px; margin: 20px 0; }
-    .question-display { font-size: 36px; font-weight: bold; margin: 30px 0; color: #2d3748; }
-    .player-list, .ranking-list { list-style: none; padding: 0; text-align: left; max-width: 400px; margin: 20px auto; }
-    .player-list li, .ranking-list li { background: #edf2f7; padding: 10px 15px; margin-bottom: 8px; border-radius: 6px; display: flex; justify-content: space-between; font-size: 18px; }
-    .ranking-list li:nth-child(1) { background: #fef3c7; border: 2px solid #f59e0b; font-weight: bold; } /* 1位を目立たせる */
-    .result-alert { font-size: 24px; font-weight: bold; margin: 20px; }
-    .correct { color: #38a169; }
-    .incorrect { color: #e53e3e; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #eef2f5; margin: 0; padding: 0; display: flex; justify-content: center; }
+    .app-container { width: 100%; max-width: 600px; background: white; min-height: 100vh; box-shadow: 0 0 10px rgba(0,0,0,0.05); display: flex; flex-direction: column; }
+    
+    /* ログイン画面スタイリング */
+    .screen { display: none; padding: 30px; box-sizing: border-box; }
+    .active { display: flex; flex-direction: column; }
+    .login-title { text-align: center; color: #1a1a1a; font-size: 24px; margin-bottom: 25px; }
+    .provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+    .provider-btn { padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #f8fafc; cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .provider-btn:hover { background: #edf2f7; border-color: #cbd5e1; }
+    .provider-btn.selected { background: #3182ce; color: white; border-color: #3182ce; }
+    .input-field { padding: 12px; font-size: 16px; border: 2px solid #e2e8f0; border-radius: 6px; margin-bottom: 15px; outline: none; }
+    .submit-btn { background: #48bb78; color: white; border: none; padding: 14px; font-size: 16px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+    
+    /* メインSNS画面スタイリング */
+    .app-header { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 15px 20px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 10; }
+    .current-user-avatar { width: 40px; height: 40px; border-radius: 50%; background: #edf2f7; }
+    .timeline { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 12px; background: #f7fafc; }
+    
+    /* 投稿カード */
+    .post-card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #edf2f7; display: flex; gap: 12px; }
+    .avatar { width: 45px; height: 45px; border-radius: 50%; }
+    .post-content { flex: 1; }
+    .post-header { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+    .username { font-weight: bold; color: #2d3748; }
+    .badge { font-size: 10px; background: #edf2f7; color: #4a5568; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+    .time { font-size: 12px; color: #a0aec0; margin-left: auto; }
+    .text { color: #4a5568; line-height: 1.4; word-break: break-all; }
+    .post-actions { display: flex; gap: 20px; margin-top: 10px; }
+    .action-btn { background: none; border: none; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 4px; color: #718096; padding: 5px; border-radius: 4px; }
+    .action-btn:hover { background: #f7fafc; }
+    .action-btn.loved { color: #e53e3e; }
+    .action-btn.favobed { color: #dd6b20; }
+    
+    /* システム通知 */
+    .system-msg { text-align: center; font-size: 12px; color: #718096; background: #edf2f7; padding: 6px; border-radius: 20px; margin: 5px 0; align-self: center; }
+    
+    /* 送信フォーム */
+    .post-form { padding: 15px; background: white; border-top: 1px solid #e2e8f0; display: flex; gap: 10px; position: sticky; bottom: 0; }
+    .form-input { flex: 1; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; outline: none; font-size: 15px; }
+    .form-submit { background: #3182ce; color: white; border: none; padding: 0 20px; border-radius: 8px; font-weight: bold; cursor: pointer; }
   </style>
 </head>
 <body>
 
-  <div class="container">
-    <h1>🔢 算数マルチ対決 ⚔️</h1>
-
-    <div id="screen-start" class="screen active">
-      <h3>部屋を作る（先生・ホスト）</h3>
-      <select id="select-grade">
-        <option value="1">小学1年生 (たしざん)</option>
-        <option value="2">小学2年生 (かけ算九九)</option>
-        <option value="3">小学3年生 (わり算)</option>
-        <option value="4">小学4年生 (3桁×2桁)</option>
-        <option value="5">小学5年生 (小数のわり算)</option>
-        <option value="6">小学6年生 (比とXの計算)</option>
-      </select><br>
-      <button onclick="createRoom()">部屋を開設する</button>
-      <hr style="margin:30px 0; border:0; border-top:1px solid #cbd5e0;">
-      <h3>ゲームに参加する（生徒）</h3>
-      <input type="text" id="input-pin" placeholder="4桁のPINコード" maxlength="4"><br>
-      <input type="text" id="input-name" placeholder="あなたのなまえ" maxlength="10"><br>
-      <button onclick="joinRoom()">参 戦</button>
-    </div>
-
-    <div id="screen-host-wait" class="screen">
-      <p>生徒にこのPINコードを伝えてください：</p>
-      <div id="host-pin" class="pin-display">----</div>
-      <p>参加中のメンバー (<span id="player-count">0</span>/30人):</p>
-      <ul id="host-player-list" class="player-list"></ul>
-      <button onclick="nextQuestion()">ゲームをスタートする</button>
-    </div>
-
-    <div id="screen-player-wait" class="screen">
-      <p>部屋に入りました！先生がゲームを始めるまでお待ちください...</p>
-      <div id="player-pin-view" style="font-size: 20px; color: #718096;"></div>
-    </div>
-
-    <div id="screen-game" class="screen">
-      <div id="view-for-host" style="display:none;">
-        <p>📊 生徒たちが挑戦中！画面に問題が表示されています。</p>
-        <button onclick="nextQuestion()">次の問題へ一斉に進む ➡️</button>
+  <div class="app-container">
+    
+    <div id="login-screen" class="screen active">
+      <h2 class="login-title">🔑 サインイン</h2>
+      <div class="provider-grid">
+        <button class="provider-btn" onclick="selectProvider('google', this)">🌐 Google</button>
+        <button class="provider-btn" onclick="selectProvider('apple', this)">🍏 Apple</button>
+        <button class="provider-btn" onclick="selectProvider('microsoft', this)">💻 Microsoft</button>
+        <button class="provider-btn" onclick="selectProvider('clever', this)">🎓 Clever</button>
+        <button class="provider-btn" onclick="selectProvider('github', this)">🐙 GitHub</button>
+        <button class="provider-btn" onclick="selectProvider('hotmail', this)">✉️ Hotmail</button>
       </div>
-      
-      <div id="view-for-player" style="display:none;">
-        <div id="game-question" class="question-display">問題を取得中...</div>
-        <div id="player-input-area">
-          <input type="text" id="input-answer" placeholder="こたえを入力" autocomplete="off"><br>
-          <button onclick="submitAnswer()">こたえを送信！</button>
+      <input type="text" id="username-input" class="input-field" placeholder="ユーザー名を入力" maxlength="15">
+      <button class="submit-btn" onclick="requestLogin()">ログインして入室</button>
+    </div>
+
+    <div id="main-screen" class="screen">
+      <div class="app-header">
+        <img id="header-avatar" class="current-user-avatar" src="" alt="">
+        <div>
+          <div id="header-username" style="font-weight: bold;">---</div>
+          <div id="header-provider" style="font-size: 12px; color: #718096;"></div>
         </div>
-        <div id="player-result-area" class="result-alert"></div>
       </div>
 
-      <hr style="margin:30px 0; border:0; border-top:1px solid #cbd5e0;">
-      <h3>リアルタイム順位表</h3>
-      <ol id="game-ranking" class="ranking-list"></ol>
+      <div id="timeline" class="timeline">
+        </div>
+
+      <div class="post-form">
+        <input type="text" id="post-input" class="form-input" placeholder="いまどうしてる？" maxlength="140" onkeypress="if(event.key==='Enter')sendPost()">
+        <button class="form-submit" onclick="sendPost()">投稿</button>
+      </div>
     </div>
+
   </div>
 
   <script>
-    // 学パソのファイアウォール・プロキシを回避するため通信方法を厳密に制限指定
-// 【書き換え前】
-// const socket = io({
-//   transports: ['polling', 'websocket']
-// });
+    // GitHub Pages / Render 間のクロスドメインプロトコル自動救済設定
+    const socket = io({ transports: ['polling', 'websocket'] });
 
-// 【書き換え後】RenderのURLを直接指定する
-const socket = io("https://kasugasansumulti.onrender.com", {
-  transports: ['polling', 'websocket']
-});
+    let selectedProvider = '';
+    let currentUser = null;
 
-    let currentPin = '';
-    let isHost = false;
-
-    // 画面切り替えユーティリティ
-    function changeScreen(screenId) {
-      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-      document.getElementById(screenId).classList.add('active');
+    // ログインプロバイダーの選択
+    function selectProvider(provider, element) {
+      document.querySelectorAll('.provider-btn').forEach(btn => btn.classList.remove('selected'));
+      element.classList.add('selected');
+      selectedProvider = provider;
     }
 
-    // 【ホスト】部屋を作る
-    function createRoom() {
-      const grade = document.getElementById('select-grade').value;
-      isHost = true;
-      socket.emit('create-room', grade);
-    }
+    // サーバーへログインリクエストを送信
+    async function requestLogin() {
+      const username = document.getElementById('username-input').value.trim();
+      if (!selectedProvider) return alert('サインイン方法を選択してください');
+      if (!username) return alert('ユーザー名を入力してください');
 
-    socket.on('room-created', (pin) => {
-      currentPin = pin;
-      document.getElementById('host-pin').innerText = pin;
-      changeScreen('screen-host-wait');
-    });
-
-    // 【生徒】部屋に入る
-    function joinRoom() {
-      const pin = document.getElementById('input-pin').value.trim();
-      const name = document.getElementById('input-name').value.trim();
-      if(!pin || !name) return alert('PINコードとなまえを入力してください');
-      
-      currentPin = pin;
-      isHost = false;
-      socket.emit('join-room', { pin, name });
-    }
-
-    // 生徒側の待機画面移行
-    socket.on('update-players', (players) => {
-      if (isHost) {
-        document.getElementById('player-count').innerText = players.length;
-        const list = document.getElementById('host-player-list');
-        list.innerHTML = players.map(p => `<li><span>👤 ${p.name}</span><span>準備完了</span></li>`).join('');
-      } else {
-        document.getElementById('player-pin-view').innerText = `ルームPIN: ${currentPin} / 参加人数: ${players.length}人`;
-        changeScreen('screen-player-wait');
-      }
-    });
-
-    // 【ホスト】次の問題を配信
-    function nextQuestion() {
-      socket.emit('next-question', currentPin);
-    }
-
-    // 【共通】問題画面への切り替え
-    socket.on('show-question', (data) => {
-      changeScreen('screen-game');
-      if (isHost) {
-        document.getElementById('view-for-host').style.display = 'block';
-        document.getElementById('view-for-player').style.display = 'none';
-      } else {
-        document.getElementById('view-for-host').style.display = 'none';
-        document.getElementById('view-for-player').style.display = 'block';
+      try {
+        const response = await fetch('/auth/mock-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, provider: selectedProvider })
+        });
+        const data = await response.json();
         
-        // 生徒用入力欄のリセット
-        document.getElementById('game-question').innerText = data.question;
-        document.getElementById('input-answer').value = '';
-        document.getElementById('input-answer').disabled = false;
-        document.getElementById('player-input-area').style.display = 'block';
-        document.getElementById('player-result-area').innerHTML = '';
+        if (data.success) {
+          currentUser = data.user;
+          setupSNSMainView();
+        }
+      } catch (e) {
+        alert('サーバー接続エラーが発生しました。');
       }
-    });
-
-    // 【生徒】答えを送信
-    function submitAnswer() {
-      const ans = document.getElementById('input-answer').value.trim();
-      if(!ans) return;
-      document.getElementById('input-answer').disabled = true;
-      document.getElementById('player-input-area').style.display = 'none';
-      socket.emit('submit-answer', { pin: currentPin, answer: ans });
     }
 
-    // 【生徒】答えの判定を受け取る
-    socket.on('answer-result', (data) => {
-      const resultArea = document.getElementById('player-result-area');
-      if(data.isCorrect) {
-        resultArea.innerHTML = '<span class="correct">⭕ 正解！ (+10点)</span>';
-      } else {
-        resultArea.innerHTML = `<span class="incorrect">❌ 不正解... (正解は: ${data.correctAnswer})</span>`;
+    // SNSメイン画面の起動・初期セットアップ
+    function setupSNSMainView() {
+      document.getElementById('login-screen').classList.remove('active');
+      document.getElementById('main-screen').classList.add('active');
+      
+      document.getElementById('header-avatar').src = currentUser.avatar;
+      document.getElementById('header-username').innerText = currentUser.name;
+      document.getElementById('header-provider').innerText = `${currentUser.provider.toUpperCase()} アカウントで接続中`;
+
+      // 脳みそ（Socketサーバー）へログイン完了情報を流す
+      socket.emit('user-join-sns', currentUser);
+    }
+
+    // メッセージの送信
+    function sendPost() {
+      const input = document.getElementById('post-input');
+      const text = input.value.trim();
+      if (!text) return;
+      socket.emit('new-post', text);
+      input.value = '';
+    }
+
+    // リアクションボタンのトリガー（Love / Favo）
+    function toggleReaction(type, postId) {
+      socket.emit(`toggle-${type}`, postId);
+    }
+
+    // タイムラインカードDOM生成ヘルパー
+    function createPostDOM(post) {
+      const isLoved = post.loves.includes(currentUser.id);
+      const isFavobed = post.favos.includes(currentUser.id);
+      
+      const card = document.createElement('div');
+      card.className = 'post-card';
+      card.id = post.id;
+      card.innerHTML = `
+        <img class="avatar" src="${post.user.avatar}" alt="">
+        <div class="post-content">
+          <div class="post-header">
+            <span class="username">${post.user.name}</span>
+            <span class="badge">${post.user.provider}</span>
+            <span class="time">${post.timestamp}</span>
+          </div>
+          <div class="text">${post.text}</div>
+          <div class="post-actions">
+            <button class="action-btn ${isLoved ? 'loved' : ''}" onclick="toggleReaction('love', '${post.id}')">
+              ${isLoved ? '❤️' : '🤍'} <span class="love-count">${post.loves.length}</span>
+            </button>
+            <button class="action-btn ${isFavobed ? 'favobed' : ''}" onclick="toggleReaction('favo', '${post.id}')">
+              ${isFavobed ? '⭐' : '☆'} <span class="favo-count">${post.favos.length}</span>
+            </button>
+          </div>
+        </div>
+      `;
+      return card;
+    }
+
+    // --- Socket.io リアルタイムリスナー受信処理 ---
+
+    // 過去ログの一斉読み込み
+    socket.on('load-timeline', (posts) => {
+      const tl = document.getElementById('timeline');
+      tl.innerHTML = '';
+      posts.forEach(post => tl.appendChild(createPostDOM(post)));
+      tl.scrollTop = tl.scrollHeight;
+    });
+
+    // 誰かの新規投稿をタイムラインの末尾に結合
+    socket.on('broadcast-post', (post) => {
+      const tl = document.getElementById('timeline');
+      tl.appendChild(createPostDOM(post));
+      tl.scrollTop = tl.scrollHeight; // 自動最下部スクロール
+    });
+
+    // いいね・お気に入りの状態が変化したカードの部分的・リアルタイム更新
+    socket.on('update-post-status', (updatedPost) => {
+      const oldCard = document.getElementById(updatedPost.id);
+      if (oldCard) {
+        const newCard = createPostDOM(updatedPost);
+        oldCard.parentNode.replaceChild(newCard, oldCard);
       }
     });
 
-    // 【共通】ランキングのリアルタイム更新
-    socket.on('update-ranking', (ranking) => {
-      const rankingList = document.getElementById('game-ranking');
-      rankingList.innerHTML = ranking.map((p, index) => 
-        `<li><span>${index + 1}位: ${p.name}</span><span>${p.score} 点</span></li>`
-      ).join('');
-    });
-
-    // エラーハンドリング
-    socket.on('error-msg', (msg) => {
-      alert(msg);
-      window.location.reload();
+    // システム割り込み通知
+    socket.on('system-message', (msg) => {
+      const tl = document.getElementById('timeline');
+      const div = document.createElement('div');
+      div.className = 'system-msg';
+      div.innerText = msg;
+      tl.appendChild(div);
+      tl.scrollTop = tl.scrollHeight;
     });
   </script>
 </body>

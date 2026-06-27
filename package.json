@@ -1,7 +1,7 @@
 {
-  "name": "sansu-multi-game",
+  "name": "kasuga-sns-app",
   "version": "1.0.0",
-  "description": "算数マルチプレイランキングゲーム",
+  "description": "主要OAuthログイン対応 リアルタイムマルチSNS",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
