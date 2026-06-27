@@ -89,7 +89,10 @@
 
   <script>
     // GitHub Pages / Render 間のクロスドメインプロトコル自動救済設定
-    const socket = io({ transports: ['polling', 'websocket'] });
+    // ネットに公開する時は、RenderのURLを直接指定します！
+const socket = io("https://kasugasansumulti.onrender.com", { 
+  transports: ['polling', 'websocket'] 
+});
 
     let selectedProvider = '';
     let currentUser = null;
