@@ -83,9 +83,15 @@
 
   <script>
     // 学パソのファイアウォール・プロキシを回避するため通信方法を厳密に制限指定
-    const socket = io({
-      transports: ['polling', 'websocket']
-    });
+// 【書き換え前】
+// const socket = io({
+//   transports: ['polling', 'websocket']
+// });
+
+// 【書き換え後】RenderのURLを直接指定する
+const socket = io("https://kasugasansumulti.onrender.com", {
+  transports: ['polling', 'websocket']
+});
 
     let currentPin = '';
     let isHost = false;
