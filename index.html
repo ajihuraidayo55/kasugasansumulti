@@ -110,8 +110,9 @@ const socket = io("https://kasugasansumulti.onrender.com", {
       if (!selectedProvider) return alert('サインイン方法を選択してください');
       if (!username) return alert('ユーザー名を入力してください');
 
-      try {
-        const response = await fetch('/auth/mock-login', {
+try {
+        // 🧠 頭にRenderのサーバーURLをきっちり指定してあげます！
+        const response = await fetch('https://kasugasansumulti.onrender.com/auth/mock-login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, provider: selectedProvider })
