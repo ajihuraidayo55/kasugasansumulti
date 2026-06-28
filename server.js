@@ -6,14 +6,19 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 
+// 🌐 大容量の画像/動画ファイル（Base64形式）を受信できるように、制限を50MBまで拡張
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
 app.use(cors({
   origin: '*', 
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type']
 }));
-app.use(express.json());
 
+// 🧠 Socket.ioも同様に大容量のデータ（maxHttpBufferSize）を受け付けられるように設定！
 const io = new Server(server, {
+  maxHttpBufferSize: 5e7, // 50MBまで許容
   cors: { origin: "*", methods: ["GET", "POST"] },
   transports: ['polling', 'websocket']
 });
@@ -52,7 +57,7 @@ io.on('connection', (socket) => {
     io.emit('system-message', `${user.name} が参加しました。`);
   });
 
-  // 📷 プロフィール画像更新の同期
+  // プロフィール画像の変更を同期
   socket.on('update-profile', (updatedUser) => {
     if (!activeUser) return;
     activeUser.avatar = updatedUser.avatar;
@@ -66,7 +71,7 @@ io.on('connection', (socket) => {
     io.emit('load-timeline', timelinePosts);
   });
 
-  // 💬 新規投稿（画像・動画データ対応）
+  // 新規投稿（添付されたローカルファイルデータ対応）
   socket.on('new-post', (postData) => {
     if (!activeUser) return;
 
@@ -74,12 +79,12 @@ io.on('connection', (socket) => {
       id: 'post_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
       user: { ...activeUser },
       text: postData.text,
-      mediaUrl: postData.mediaUrl,
+      mediaUrl: postData.mediaUrl, // ここにBase64化したファイルデータが入る
       mediaType: postData.mediaType,
       timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
       loves: [],
       favos: [],
-      shares: [] // 誰が拡散したかを記録する配列
+      shares: []
     };
 
     timelinePosts.push(newPost);
@@ -87,19 +92,16 @@ io.on('connection', (socket) => {
     io.emit('broadcast-post', newPost);
   });
 
-  // 🔄 拡散機能（リポスト）のロジック
+  // 拡散機能（リポスト）
   socket.on('share-post', (postId) => {
     if (!activeUser) return;
     const targetPost = timelinePosts.find(p => p.id === postId);
     
     if (targetPost) {
       if (!targetPost.shares) targetPost.shares = [];
-      
-      // 二重拡散を防ぐ
       if (targetPost.shares.includes(activeUser.id)) return;
       targetPost.shares.push(activeUser.id);
 
-      // 拡散された投稿をタイムラインの最新に新しく生成して流す
       const sharedPost = {
         ...targetPost,
         id: 'share_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
@@ -114,7 +116,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // フォロー切り替え時の手動リフレッシュ要求
   socket.on('request-timeline-refresh', () => {
     socket.emit('load-timeline', timelinePosts);
   });
