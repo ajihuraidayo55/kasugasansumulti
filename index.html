@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kasuga Multi-SNS v2</title>
+  <title>Kasuga Multi-SNS v3</title>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #eef2f5; margin: 0; padding: 0; display: flex; justify-content: center; }
@@ -12,18 +12,18 @@
     .active { display: flex; flex-direction: column; }
     .login-title { text-align: center; color: #1a1a1a; font-size: 24px; margin-bottom: 25px; }
     .provider-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
-    .provider-btn { padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #f8fafc; cursor: pointer; font-weight: bold; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .provider-btn { padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #f8fafc; cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
     .provider-btn.selected { background: #3182ce; color: white; border-color: #3182ce; }
     .input-field { padding: 12px; font-size: 16px; border: 2px solid #e2e8f0; border-radius: 6px; margin-bottom: 15px; outline: none; }
     .submit-btn { background: #48bb78; color: white; border: none; padding: 14px; font-size: 16px; border-radius: 6px; cursor: pointer; font-weight: bold; }
     
-    /* ヘッダー周り */
+    /* ヘッダー */
     .app-header { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 15px 20px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 10; }
-    .current-user-avatar { width: 45px; height: 45px; border-radius: 50%; background: #edf2f7; cursor: pointer; object-fit: cover; }
+    .current-user-avatar { width: 45px; height: 45px; border-radius: 50%; background: #edf2f7; cursor: pointer; object-fit: cover; border: 2px solid #e2e8f0; }
     .header-info { flex: 1; }
     
     /* タイムライン */
-    .timeline { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 12px; background: #f7fafc; height: calc(100vh - 160px); }
+    .timeline { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 12px; background: #f7fafc; height: calc(100vh - 180px); }
     .post-card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #edf2f7; display: flex; gap: 12px; position: relative; }
     .post-card.shared-post { border-left: 4px solid #3182ce; background: #f0f7ff; }
     .avatar { width: 45px; height: 45px; border-radius: 50%; object-fit: cover; }
@@ -34,10 +34,10 @@
     .time { font-size: 12px; color: #a0aec0; margin-left: auto; }
     .text { color: #4a5568; line-height: 1.4; word-break: break-all; margin-bottom: 8px; }
     
-    /* メディア表示 */
-    .post-media { max-width: 100%; max-height: 300px; border-radius: 8px; margin-top: 8px; display: block; object-fit: cover; }
+    /* 添付メディア表示 */
+    .post-media { max-width: 100%; max-height: 350px; border-radius: 8px; margin-top: 8px; display: block; object-fit: contain; background: #000; }
     
-    /* ボタン関係 */
+    /* アクションボタン */
     .post-actions { display: flex; gap: 15px; margin-top: 10px; }
     .action-btn { background: none; border: none; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 4px; color: #718096; padding: 5px; border-radius: 4px; }
     .action-btn.loved { color: #e53e3e; }
@@ -54,8 +54,13 @@
     .form-row { display: flex; gap: 10px; }
     .form-input { flex: 1; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; outline: none; font-size: 15px; }
     .form-submit { background: #3182ce; color: white; border: none; padding: 0 20px; border-radius: 8px; font-weight: bold; cursor: pointer; }
-    .media-input-row { display: flex; gap: 10px; align-items: center; font-size: 12px; color: #718096; }
-    .media-url-input { flex: 1; padding: 6px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; }
+    .media-input-row { display: flex; gap: 15px; align-items: center; font-size: 13px; color: #4a5568; }
+    
+    /* 隠しファイルインプットとおしゃれボタン */
+    .file-label { background: #edf2f7; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px; border: 1px solid #cbd5e1; }
+    .file-label:hover { background: #e2e8f0; }
+    .file-input { display: none; }
+    .preview-badge { background: #e9d8fd; color: #6b46c1; padding: 2px 8px; border-radius: 4px; font-size: 11px; display: none; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -78,7 +83,8 @@
 
     <div id="main-screen" class="screen">
       <div class="app-header">
-        <img id="header-avatar" class="current-user-avatar" src="" alt="Avatar" title="クリックしてアバターURLを変更" onclick="changeAvatar()">
+        <input type="file" id="avatar-file-input" accept="image/*" class="file-input" onchange="uploadAvatar(this)">
+        <img id="header-avatar" class="current-user-avatar" src="" alt="Avatar" title="クリックしてプロフィール画像を変更" onclick="document.getElementById('avatar-file-input').click()">
         <div class="header-info">
           <div id="header-username" style="font-weight: bold;">---</div>
           <div id="header-provider" style="font-size: 12px; color: #718096;"></div>
@@ -89,12 +95,15 @@
 
       <div class="post-form">
         <div class="form-row">
-          <input type="text" id="post-input" class="form-input" placeholder="いまどうしてる？（動画や画像のURLを下に貼ると添付できるよ）" maxlength="140" onkeypress="if(event.key==='Enter')sendPost()">
+          <input type="text" id="post-input" class="form-input" placeholder="いまどうしてる？" maxlength="140" onkeypress="if(event.key==='Enter')sendPost()">
           <button class="form-submit" onclick="sendPost()">投稿</button>
         </div>
         <div class="media-input-row">
-          <span>📎 メディアURL(任意):</span>
-          <input type="text" id="media-input" class="media-url-input" placeholder="https://... (jpg, png, mp4など)">
+          <label class="file-label">
+            📁 写真/動画を選択
+            <input type="file" id="post-file-input" accept="image/*,video/*" class="file-input" onchange="handleFileSelect(this)">
+          </label>
+          <span id="file-preview-badge" class="preview-badge">選択中</span>
         </div>
       </div>
     </div>
@@ -104,7 +113,9 @@
   <script>
     let selectedProvider = '';
     let currentUser = null;
-    let followingList = []; // フォローしているユーザーIDのリスト
+    let followingList = [];
+    let attachedFileData = null; // 選択されたファイルのBase64データを一時保存する変数
+    let attachedFileType = 'none';
 
     const socket = io("https://kasugasansumulti.onrender.com", {
       transports: ['polling', 'websocket']
@@ -149,51 +160,86 @@
       socket.emit('user-join-sns', currentUser);
     }
 
-    // 📷 プロフィール画像アップ機能（URL指定での簡易変更）
-    function changeAvatar() {
-      const newUrl = prompt('新しいプロフィール画像のURLを入力してください：', currentUser.avatar);
-      if (newUrl && newUrl.trim() !== '') {
-        currentUser.avatar = newUrl.trim();
+    // 📷 プロフィール画像をデスクトップのファイルからアップデートする機能
+    function uploadAvatar(input) {
+      const file = input.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        currentUser.avatar = e.target.result; // 画像をBase64形式で保存
         document.getElementById('header-avatar').src = currentUser.avatar;
-        // サーバーにプロフィール更新を通知
         socket.emit('update-profile', currentUser);
-      }
+      };
+      reader.readAsDataURL(file);
     }
 
-    // 💬 投稿機能（画像・動画URL添付対応）
-    function sendPost() {
-      const input = document.getElementById('post-input');
-      const mediaInput = document.getElementById('media-input');
-      const text = input.value.trim();
-      const mediaUrl = mediaInput.value.trim();
+    // 📁 投稿用のローカルファイルが選択された時の処理
+    function handleFileSelect(input) {
+      const file = input.files[0];
+      const badge = document.getElementById('file-preview-badge');
       
-      if (!text && !mediaUrl) return;
-
-      // メディアのタイプを簡易判別
-      let mediaType = 'none';
-      if (mediaUrl) {
-        if (mediaUrl.match(/\.(mp4|webm|ogg|mov)$/i)) {
-          mediaType = 'video';
-        } else {
-          mediaType = 'image'; // デフォルトは画像扱い
-        }
+      if (!file) {
+        attachedFileData = null;
+        attachedFileType = 'none';
+        badge.style.display = 'none';
+        return;
       }
 
-      socket.emit('new-post', { text, mediaUrl, mediaType });
+      // ファイルサイズが大きすぎるとRenderの通信上限にひっかかるため制限（目安10MB以下）
+      if (file.size > 10 * 1024 * 1024) {
+        alert('ファイルサイズが大きすぎます。10MB以下のファイルを選択してください。');
+        input.value = '';
+        return;
+      }
+
+      // ファイルタイプの判別
+      if (file.type.startsWith('video/')) {
+        attachedFileType = 'video';
+      } else {
+        attachedFileType = 'image';
+      }
+
+      // ファイルを読み込んでBase64文字列に変換
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        attachedFileData = e.target.result;
+        badge.innerText = `選択中: ${file.name.substring(0, 10)}...`;
+        badge.style.display = 'inline-block';
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // 💬 投稿ボタンを押した時の処理
+    function sendPost() {
+      const input = document.getElementById('post-input');
+      const text = input.value.trim();
+      
+      if (!text && !attachedFileData) return;
+
+      // テキストとBase64データをまとめて送信！
+      socket.emit('new-post', { 
+        text: text, 
+        mediaUrl: attachedFileData, // ここにファイルのデータそのものが入る
+        mediaType: attachedFileType 
+      });
+
+      // 送信したらフォームをリセット
       input.value = '';
-      mediaInput.value = '';
+      document.getElementById('post-file-input').value = '';
+      document.getElementById('file-preview-badge').style.display = 'none';
+      attachedFileData = null;
+      attachedFileType = 'none';
     }
 
     function toggleReaction(type, postId) {
       socket.emit(`toggle-${type}`, postId);
     }
 
-    // 🔄 拡散機能（リポスト）のトリガー
     function sharePost(postId) {
       socket.emit('share-post', postId);
     }
 
-    // 👤 フォロー機能のトリガー
     function toggleFollow(userId, username) {
       if (userId === currentUser.id) return alert('自分自身はフォローできません');
       
@@ -205,11 +251,9 @@
         followingList.splice(index, 1);
         alert(`${username} のフォローを解除しました。`);
       }
-      // タイムラインを再描画してボタン表示を更新
       socket.emit('request-timeline-refresh');
     }
 
-    // 投稿カード生成の拡張
     function createPostDOM(post) {
       const isLoved = post.loves.includes(currentUser.id);
       const isFavobed = post.favos.includes(currentUser.id);
@@ -223,13 +267,12 @@
       let mediaHTML = '';
       if (post.mediaUrl) {
         if (post.mediaType === 'video') {
-          mediaHTML = `<video class="post-media" src="${post.mediaUrl}" controls muted></video>`;
+          mediaHTML = `<video class="post-media" src="${post.mediaUrl}" controls></video>`;
         } else if (post.mediaType === 'image') {
-          mediaHTML = `<img class="post-media" src="${post.mediaUrl}" alt="uploaded">`;
+          mediaHTML = `<img class="post-media" src="${post.mediaUrl}" alt="uploaded-file">`;
         }
       }
 
-      // 自分以外のユーザーにフォローボタンを表示
       const followBtnHTML = (post.user.id !== currentUser.id) 
         ? `<button class="follow-btn ${isFollowing ? 'following' : ''}" onclick="toggleFollow('${post.user.id}', '${post.user.name}')">${isFollowing ? 'フォロー中' : '＋フォロー'}</button>`
         : '';
