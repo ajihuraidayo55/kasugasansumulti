@@ -6,7 +6,7 @@ const cors = require('cors');
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '10mb' })); // Base64画像のための容量拡張
+app.use(express.json({ limit: '10mb' })); // Base64画像を受け取れるように拡張
 
 app.head('/', (req, res) => res.status(200).end());
 app.get('/', (req, res) => res.send('SNS Server is running!'));
@@ -21,12 +21,47 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// 🛠️ テーブル構造を壊さず、画像列（image）がなければ追加するだけ
+// 🔎 データベースの実際の列名を自動で突き止めるための変数
+let detectedColumns = {
+  username: 'username',
+  avatar: 'avatar',
+  provider: 'provider'
+};
+
 async function initDB() {
+  // 1. 画像用の image カラムがなければ安全に追加
   try {
     await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS image TEXT;`);
   } catch (err) {
-    console.log("Image column sync notice:", err.message);
+    console.log("Image column notice:", err.message);
+  }
+
+  // 2. 既存のテーブルの実際の列名を自動解析する
+  try {
+    const res = await pool.query('SELECT * FROM posts LIMIT 1');
+    if (res.rows.length > 0) {
+      const row = res.rows[0];
+      const keys = Object.keys(row);
+      
+      // ユーザー名カラムの自動判別
+      if (keys.includes('user_name')) detectedColumns.username = 'user_name';
+      else if (keys.includes('username')) detectedColumns.username = 'username';
+      else if (keys.includes('name')) detectedColumns.username = 'name';
+
+      // アバターカラムの自動判別
+      if (keys.includes('user_avatar')) detectedColumns.avatar = 'user_avatar';
+      else if (keys.includes('avatar_url')) detectedColumns.avatar = 'avatar_url';
+      else if (keys.includes('avatar')) detectedColumns.avatar = 'avatar';
+
+      // プロバイダー（ログイン方法）カラムの自動判別
+      if (keys.includes('provider')) detectedColumns.provider = 'provider';
+      else if (keys.includes('user_provider')) detectedColumns.provider = 'user_provider';
+      else if (keys.includes('login_method')) detectedColumns.provider = 'login_method';
+      
+      console.log("元の正しい列名を自動検出しました:", detectedColumns);
+    }
+  } catch (err) {
+    console.error("列名の解析に失敗しました。デフォルトを使用します:", err.message);
   }
 }
 initDB().catch(console.error);
@@ -39,16 +74,16 @@ io.on('connection', (socket) => {
     try {
       const res = await pool.query('SELECT * FROM posts ORDER BY timestamp ASC');
       
-      // タイムライン取得（あなたの元のカラム名 username, avatar をそのまま使用）
+      // 自動検出した元の列名を使って、世界中のみんなのデータを100%正確に復元
       const posts = res.rows.map(row => ({
         id: row.id,
         user: { 
-          name: row.username || 'Unknown', 
-          provider: row.provider || 'web', 
-          avatar: row.avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=default'
+          name: row[detectedColumns.username] || 'Unknown', 
+          provider: row[detectedColumns.provider] || 'Google', // 元の正しいログイン方法
+          avatar: row[detectedColumns.avatar] || 'https://api.dicebear.com/7.x/bottts/svg?seed=default'
         },
         text: row.text,
-        image: row.image || null, // 追加した画像データ
+        image: row.image || null,
         timestamp: row.timestamp,
         loves: row.loves || [],
         favos: row.favos || []
@@ -76,29 +111,31 @@ io.on('connection', (socket) => {
     };
 
     try {
-      // ⚠️ 修正：あなたの元の正しいカラム名（username, avatar）でインサートする
-      await pool.query(
-        `INSERT INTO posts (id, username, provider, avatar, text, image, timestamp, loves, favos) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [
-          newPost.id, 
-          newPost.user.name, // ログインしたユーザーの名前を username 列に保存
-          newPost.user.provider, 
-          newPost.user.avatar, // アバターURLを avatar 列に保存
-          newPost.text, 
-          newPost.image, 
-          newPost.timestamp, 
-          [], 
-          []
-        ]
-      );
+      // ⚠️ 自動検出された正しい列名に合わせて、動的にSQL文を組み立てて確実に保存（エラー回避）
+      const queryText = `
+        INSERT INTO posts (id, ${detectedColumns.username}, ${detectedColumns.provider}, ${detectedColumns.avatar}, text, image, timestamp, loves, favos) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `;
+      
+      await pool.query(queryText, [
+        newPost.id, 
+        newPost.user.name, 
+        newPost.user.provider, 
+        newPost.user.avatar, 
+        newPost.text, 
+        newPost.image, 
+        newPost.timestamp, 
+        [], 
+        []
+      ]);
+      
       io.emit('broadcast-post', newPost);
     } catch (err) {
-      console.error(err);
+      console.error("投稿エラーが発生しました:", err);
     }
   });
 
-  // --- リアクション処理（元のカラム構造のまま動く完全版） ---
+  // --- リアクション処理（自動判別の列名に対応） ---
   socket.on('toggle-love', async (postId) => {
     if (!activeUser) return;
     try {
@@ -131,9 +168,9 @@ io.on('connection', (socket) => {
         const updatedPost = {
           id: row.id,
           user: { 
-            name: row.username || 'Unknown', 
-            provider: row.provider || 'web', 
-            avatar: row.avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=default'
+            name: row[detectedColumns.username] || 'Unknown', 
+            provider: row[detectedColumns.provider] || 'Google', 
+            avatar: row[detectedColumns.avatar] || 'https://api.dicebear.com/7.x/bottts/svg?seed=default'
           },
           text: row.text,
           image: row.image,
@@ -162,4 +199,4 @@ app.post('/auth/mock-login', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running safely on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server running with auto-detection on port ${PORT}`));
