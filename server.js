@@ -36,6 +36,9 @@ async function initDB() {
       favos TEXT[] DEFAULT '{}'
     )
   `);
+
+  // ⬇️ 【ココを追加！】名前が undefined になっちゃってる過去のゴミデータを一発で全削除する
+  await pool.query("DELETE FROM posts WHERE username IS NULL OR username = 'undefined'");
 }
 initDB().catch(console.error);
 
