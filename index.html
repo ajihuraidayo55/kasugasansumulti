@@ -162,32 +162,44 @@ function toggleReaction(type, postId) {
 }
 
 // 8. 投稿カード生成
+// 8. 投稿カード生成（エラー完全防御版）
 function createPostDOM(post) {
-  const isLoved = post.loves.includes(currentUser.id);
-  const isFavobed = post.favos.includes(currentUser.id);
+  // ⚠️ 防御：もしpostやpost.userが壊れていたら空のオブジェクトで代用する
+  const user = post.user || {};
+  const username = user.name || '名無し';
+  const provider = user.provider || 'UNKNOWN';
   
-  // 画像データがあれば表示用のタグを作る
+  // ⚠️ ラスボス対策：アバターがundefinedという文字になっていたらデフォルトのロボットにする
+  let avatarUrl = user.avatar;
+  if (!avatarUrl || avatarUrl.includes('undefined')) {
+    avatarUrl = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(username)}`;
+  }
+
+  const isLoved = (post.loves || []).includes(currentUser ? currentUser.id : '');
+  const isFavobed = (post.favos || []).includes(currentUser ? currentUser.id : '');
+  
+  // 画像データがあれば表示
   const imageTag = post.image ? `<div style="margin-top:10px;"><img src="${post.image}" style="max-width:100%; border-radius:8px; max-height:300px; object-fit:contain;"></div>` : '';
   
   const card = document.createElement('div');
   card.className = 'post-card';
-  card.id = post.id;
+  card.id = post.id || ('post_' + Math.random().toString(36).substr(2, 9));
   card.innerHTML = `
-    <img class="avatar" src="${post.user.avatar}" alt="">
+    <img class="avatar" src="${avatarUrl}" alt="" onerror="this.src='https://api.dicebear.com/7.x/bottts/svg?seed=fallback'">
     <div class="post-content">
       <div class="post-header">
-        <span class="username">${post.user.name}</span>
-        <span class="badge">${post.user.provider}</span>
-        <span class="time">${post.timestamp}</span>
+        <span class="username">${username}</span>
+        <span class="badge">${provider}</span>
+        <span class="time">${post.timestamp || ''}</span>
       </div>
-      <div class="text">${post.text}</div>
+      <div class="text">${post.text || ''}</div>
       ${imageTag}
       <div class="post-actions">
         <button class="action-btn ${isLoved ? 'loved' : ''}" onclick="toggleReaction('love', '${post.id}')">
-          ${isLoved ? '❤️' : '🤍'} <span class="love-count">${post.loves.length}</span>
+          ${isLoved ? '❤️' : '🤍'} <span class="love-count">${(post.loves || []).length}</span>
         </button>
         <button class="action-btn ${isFavobed ? 'favobed' : ''}" onclick="toggleReaction('favo', '${post.id}')">
-          ${isFavobed ? '⭐' : '☆'} <span class="favo-count">${post.favos.length}</span>
+          ${isFavobed ? '⭐' : '☆'} <span class="favo-count">${(post.favos || []).length}</span>
         </button>
       </div>
     </div>
