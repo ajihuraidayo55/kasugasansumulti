@@ -79,67 +79,65 @@
   </div>
 
   <script>
-    // ⚙️ 1. 最優先で変数を定義（初期化エラー対策）
-    let selectedProvider = '';
-    let currentUser = null;
+// ⚙️ 1. 最優先で変数を定義
+let selectedProvider = '';
+let currentUser = null;
 
-    // 🧠 2. サーバー（Render）へ電波を繋ぐ
-    const socket = io("https://kasugasansumulti.onrender.com", {
-      transports: ['polling', 'websocket']
+// 🧠 2. サーバー（Render）へ電波を繋ぐ
+const socket = io("https://kasugasansumulti.onrender.com", {
+  transports: ['polling', 'websocket']
+});
+
+// 3. プロバイダー選択処理
+function selectProvider(provider, element) {
+  document.querySelectorAll('.provider-btn').forEach(btn => btn.classList.remove('selected'));
+  element.classList.add('selected');
+  selectedProvider = provider;
+}
+
+// 4. ログインボタン押下時の処理
+async function requestLogin() {
+  const username = document.getElementById('username-input').value.trim();
+  if (!selectedProvider) return alert('サインイン方法を選択してください');
+  if (!username) return alert('ユーザー名を入力してください');
+
+  try {
+    const response = await fetch('https://kasugasansumulti.onrender.com/auth/mock-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, provider: selectedProvider })
     });
-
-    // 3. プロバイダー選択処理
-    function selectProvider(provider, element) {
-      document.querySelectorAll('.provider-btn').forEach(btn => btn.classList.remove('selected'));
-      element.add ? element.classList.add('selected') : element.classList.toggle('selected');
-      selectedProvider = provider;
+    const data = await response.json();
+    
+    if (data.success) {
+      currentUser = data.user;
+      setupSNSMainView();
     }
+  } catch (e) {
+    alert('サーバー接続エラーが発生しました。');
+  }
+}
 
-    // 4. ログインボタン押下時の処理（Renderにまっすぐ通信を飛ばす）
-    async function requestLogin() {
-      const username = document.getElementById('username-input').value.trim();
-      if (!selectedProvider) return alert('サインイン方法を選択してください');
-      if (!username) return alert('ユーザー名を入力してください');
+// 5. SNSメイン画面への切り替え
+function setupSNSMainView() {
+  document.getElementById('login-screen').classList.remove('active');
+  document.getElementById('main-screen').classList.add('active');
+  
+  document.getElementById('header-avatar').src = currentUser.avatar;
+  document.getElementById('header-username').innerText = currentUser.name;
+  document.getElementById('header-provider').innerText = `${currentUser.provider.toUpperCase()} アカウントで接続中`;
 
-      try {
-        const response = await fetch('https://kasugasansumulti.onrender.com/auth/mock-login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, provider: selectedProvider })
-        });
-        const data = await response.json();
-        
-        if (data.success) {
-          currentUser = data.user;
-          setupSNSMainView();
-        }
-      } catch (e) {
-        alert('サーバー接続エラーが発生しました。Renderの起動を確認してください。');
-      }
-    }
+  socket.emit('user-join-sns', currentUser);
+}
 
-    // 5. SNSメイン画面への切り替え
-    function setupSNSMainView() {
-      document.getElementById('login-screen').classList.remove('active');
-      document.getElementById('main-screen').classList.add('active');
-      
-      document.getElementById('header-avatar').src = currentUser.avatar;
-      document.getElementById('header-username').innerText = currentUser.name;
-      document.getElementById('header-provider').innerText = `${currentUser.provider.toUpperCase()} アカウントで接続中`;
-
-      socket.emit('user-join-sns', currentUser);
-    }
-
-    // 6. メッセージの送信
-    // 6. メッセージと画像の送信（パワーアップ版）
+// 6. メッセージと画像の送信
 async function sendPost() {
   const input = document.getElementById('post-input');
-  const fileInput = document.getElementById('image-input'); // 👈 HTMLのファイル選択ボタンのIDに合わせてね
+  const fileInput = document.getElementById('image-input'); // 👈 HTML側のファイル選択の裏IDに合わせてね
   const text = input.value.trim();
   
   let imageData = null;
 
-  // もし画像が選択されていたら、文字データ(Base64)に変換する
   if (fileInput && fileInput.files.length > 0) {
     const file = fileInput.files[0];
     imageData = await new Promise((resolve) => {
@@ -149,30 +147,27 @@ async function sendPost() {
     });
   }
 
-  // 文字も画像も両方空っぽなら何もしない
   if (!text && !imageData) return;
 
-  // サーバーへ「文字」と「画像」をセットにして送信！
+  // オブジェクト形式で送信
   socket.emit('new-post', { text: text, image: imageData });
 
-  // 入力欄をクリアにする
   input.value = '';
   if (fileInput) fileInput.value = '';
 }
 
-    // 7. いいね・お気に入りボタンのトリガー
-    function toggleReaction(type, postId) {
-      socket.emit(`toggle-${type}`, postId);
-    }
+// 7. いいね・お気に入りボタンのトリガー
+function toggleReaction(type, postId) {
+  socket.emit(`toggle-${type}`, postId);
+}
 
-    // 8. 投稿カード生成
-    // 8. 投稿カード生成（画像表示対応版）
+// 8. 投稿カード生成
 function createPostDOM(post) {
   const isLoved = post.loves.includes(currentUser.id);
   const isFavobed = post.favos.includes(currentUser.id);
   
-  // もし画像データがあったら、<img>タグを作る。なければ空っぽ
-  const imageTag = post.image ? `<img class="post-image" src="${post.image}" style="max-width:100%; border-radius:8px; margin-top:8px;">` : '';
+  // 画像データがあれば表示用のタグを作る
+  const imageTag = post.image ? `<div style="margin-top:10px;"><img src="${post.image}" style="max-width:100%; border-radius:8px; max-height:300px; object-fit:contain;"></div>` : '';
   
   const card = document.createElement('div');
   card.className = 'post-card';
@@ -186,7 +181,8 @@ function createPostDOM(post) {
         <span class="time">${post.timestamp}</span>
       </div>
       <div class="text">${post.text}</div>
-      ${imageTag} <div class="post-actions">
+      ${imageTag}
+      <div class="post-actions">
         <button class="action-btn ${isLoved ? 'loved' : ''}" onclick="toggleReaction('love', '${post.id}')">
           ${isLoved ? '❤️' : '🤍'} <span class="love-count">${post.loves.length}</span>
         </button>
@@ -199,36 +195,36 @@ function createPostDOM(post) {
   return card;
 }
 
-    // --- Socket.io 受信イベント群 ---
-    socket.on('load-timeline', (posts) => {
-      const tl = document.getElementById('timeline');
-      tl.innerHTML = '';
-      posts.forEach(post => tl.appendChild(createPostDOM(post)));
-      tl.scrollTop = tl.scrollHeight;
-    });
+// --- Socket.io 受信イベント群 ---
+socket.on('load-timeline', (posts) => {
+  const tl = document.getElementById('timeline');
+  tl.innerHTML = '';
+  posts.forEach(post => tl.appendChild(createPostDOM(post)));
+  tl.scrollTop = tl.scrollHeight;
+});
 
-    socket.on('broadcast-post', (post) => {
-      const tl = document.getElementById('timeline');
-      tl.appendChild(createPostDOM(post));
-      tl.scrollTop = tl.scrollHeight;
-    });
+socket.on('broadcast-post', (post) => {
+  const tl = document.getElementById('timeline');
+  tl.appendChild(createPostDOM(post));
+  tl.scrollTop = tl.scrollHeight;
+});
 
-    socket.on('update-post-status', (updatedPost) => {
-      const oldCard = document.getElementById(updatedPost.id);
-      if (oldCard) {
-        const newCard = createPostDOM(updatedPost);
-        oldCard.parentNode.replaceChild(newCard, oldCard);
-      }
-    });
+socket.on('update-post-status', (updatedPost) => {
+  const oldCard = document.getElementById(updatedPost.id);
+  if (oldCard) {
+    const newCard = createPostDOM(updatedPost);
+    oldCard.parentNode.replaceChild(newCard, oldCard);
+  }
+});
 
-    socket.on('system-message', (msg) => {
-      const tl = document.getElementById('timeline');
-      const div = document.createElement('div');
-      div.className = 'system-msg';
-      div.innerText = msg;
-      tl.appendChild(div);
-      tl.scrollTop = tl.scrollHeight;
-    });
+socket.on('system-message', (msg) => {
+  const tl = document.getElementById('timeline');
+  const div = document.createElement('div');
+  div.className = 'system-msg';
+  div.innerText = msg;
+  tl.appendChild(div);
+  tl.scrollTop = tl.scrollHeight;
+});
   </script>
 </body>
 </html>
