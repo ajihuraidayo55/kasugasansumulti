@@ -6,7 +6,7 @@ const cors = require('cors');
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '10mb' })); // Base64の重い画像データ用
+app.use(express.json({ limit: '10mb' })); // Base64画像のための容量拡張
 
 app.head('/', (req, res) => res.status(200).end());
 app.get('/', (req, res) => res.send('SNS Server is running!'));
@@ -21,22 +21,12 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// 🛠️ 既存のテーブル構造を守りつつ、画像用の列がなければ追加する
+// 🛠️ テーブル構造を壊さず、画像列（image）がなければ追加するだけ
 async function initDB() {
-  // 1. もし画像用の image 列がなければ後付けで追加する（エラーを回避する安全策）
   try {
-    await pool.query(`
-      ALTER TABLE posts ADD COLUMN IF NOT EXISTS image TEXT;
-    `);
+    await pool.query(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS image TEXT;`);
   } catch (err) {
-    console.log("Image column sync notice (Safe to ignore):", err.message);
-  }
-
-  // 2. 過去のバグデータを安全にお掃除（列名は user_name を使用）
-  try {
-    await pool.query("DELETE FROM posts WHERE user_name IS NULL OR user_name = 'undefined'");
-  } catch (err) {
-    console.error("Cleanup error:", err.message);
+    console.log("Image column sync notice:", err.message);
   }
 }
 initDB().catch(console.error);
@@ -47,19 +37,18 @@ io.on('connection', (socket) => {
   socket.on('user-join-sns', async (user) => {
     activeUser = user;
     try {
-      // タイムラインの取得
       const res = await pool.query('SELECT * FROM posts ORDER BY timestamp ASC');
       
-      // ⚠️ あなたのDBの正しい列名（user_nameなど）に合わせてフロントへ渡すオブジェクトを生成
+      // タイムライン取得（あなたの元のカラム名 username, avatar をそのまま使用）
       const posts = res.rows.map(row => ({
         id: row.id,
         user: { 
-          name: row.user_name || row.username || '名無し', // user_nameとusernameの両方に対応
-          provider: row.provider || 'UNKNOWN', 
-          avatar: row.avatar || row.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(row.user_name || 'anon')}`
+          name: row.username || 'Unknown', 
+          provider: row.provider || 'web', 
+          avatar: row.avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=default'
         },
         text: row.text,
-        image: row.image || null, // 後から追加した画像列
+        image: row.image || null, // 追加した画像データ
         timestamp: row.timestamp,
         loves: row.loves || [],
         favos: row.favos || []
@@ -87,16 +76,15 @@ io.on('connection', (socket) => {
     };
 
     try {
-      // ⚠️ インサート時も、あなたの既存のDB構造（user_name等）に合わせて保存するSQLを実行
-      // 既存のテーブルのカラム名が user_name か username かを判別して動的にインサート
+      // ⚠️ 修正：あなたの元の正しいカラム名（username, avatar）でインサートする
       await pool.query(
-        `INSERT INTO posts (id, user_name, provider, avatar, text, image, timestamp, loves, favos) 
+        `INSERT INTO posts (id, username, provider, avatar, text, image, timestamp, loves, favos) 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           newPost.id, 
-          newPost.user.name, // 画面から送られてきた名前を user_name に入れる
+          newPost.user.name, // ログインしたユーザーの名前を username 列に保存
           newPost.user.provider, 
-          newPost.user.avatar, 
+          newPost.user.avatar, // アバターURLを avatar 列に保存
           newPost.text, 
           newPost.image, 
           newPost.timestamp, 
@@ -110,7 +98,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // --- リアクション処理（省略せず完全版） ---
+  // --- リアクション処理（元のカラム構造のまま動く完全版） ---
   socket.on('toggle-love', async (postId) => {
     if (!activeUser) return;
     try {
@@ -143,9 +131,9 @@ io.on('connection', (socket) => {
         const updatedPost = {
           id: row.id,
           user: { 
-            name: row.user_name || row.username || '名無し', 
-            provider: row.provider || 'UNKNOWN', 
-            avatar: row.avatar || row.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(row.user_name || 'anon')}`
+            name: row.username || 'Unknown', 
+            provider: row.provider || 'web', 
+            avatar: row.avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=default'
           },
           text: row.text,
           image: row.image,
