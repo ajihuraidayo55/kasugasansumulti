@@ -4,12 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Kasuga Multi-SNS</title>
+  
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #eef2f5; margin: 0; padding: 0; display: flex; justify-content: center; }
     .app-container { width: 100%; max-width: 600px; background: white; min-height: 100vh; box-shadow: 0 0 10px rgba(0,0,0,0.05); display: flex; flex-direction: column; }
-    
-    /* ログイン画面スタイリング */
     .screen { display: none; padding: 30px; box-sizing: border-box; }
     .active { display: flex; flex-direction: column; }
     .login-title { text-align: center; color: #1a1a1a; font-size: 24px; margin-bottom: 25px; }
@@ -19,13 +19,9 @@
     .provider-btn.selected { background: #3182ce; color: white; border-color: #3182ce; }
     .input-field { padding: 12px; font-size: 16px; border: 2px solid #e2e8f0; border-radius: 6px; margin-bottom: 15px; outline: none; }
     .submit-btn { background: #48bb78; color: white; border: none; padding: 14px; font-size: 16px; border-radius: 6px; cursor: pointer; font-weight: bold; }
-    
-    /* メインSNS画面スタイリング */
     .app-header { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 15px 20px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 10; }
     .current-user-avatar { width: 40px; height: 40px; border-radius: 50%; background: #edf2f7; }
     .timeline { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 12px; background: #f7fafc; }
-    
-    /* 投稿カード */
     .post-card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #edf2f7; display: flex; gap: 12px; }
     .avatar { width: 45px; height: 45px; border-radius: 50%; }
     .post-content { flex: 1; }
@@ -39,11 +35,7 @@
     .action-btn:hover { background: #f7fafc; }
     .action-btn.loved { color: #e53e3e; }
     .action-btn.favobed { color: #dd6b20; }
-    
-    /* システム通知 */
     .system-msg { text-align: center; font-size: 12px; color: #718096; background: #edf2f7; padding: 6px; border-radius: 20px; margin: 5px 0; align-self: center; }
-    
-    /* 送信フォーム */
     .post-form { padding: 15px; background: white; border-top: 1px solid #e2e8f0; display: flex; gap: 10px; position: sticky; bottom: 0; }
     .form-input { flex: 1; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; outline: none; font-size: 15px; }
     .form-submit { background: #3182ce; color: white; border: none; padding: 0 20px; border-radius: 8px; font-weight: bold; cursor: pointer; }
@@ -76,8 +68,7 @@
         </div>
       </div>
 
-      <div id="timeline" class="timeline">
-        </div>
+      <div id="timeline" class="timeline"></div>
 
       <div class="post-form">
         <input type="text" id="post-input" class="form-input" placeholder="いまどうしてる？" maxlength="140" onkeypress="if(event.key==='Enter')sendPost()">
@@ -87,50 +78,47 @@
 
   </div>
 
-<script>
-  // 1. 変数の定義と初期化を「一番最初」に書く（これでエラーが消えます）
-  let selectedProvider = '';
-  let currentUser = null;
+  <script>
+    // ⚙️ 1. 最優先で変数を定義（初期化エラー対策）
+    let selectedProvider = '';
+    let currentUser = null;
 
-  // 2. 通信先の設定（RenderのURLを指定）
-  const socket = io("https://kasugasansumulti.onrender.com", { 
-    transports: ['polling', 'websocket'] 
-  });
+    // 🧠 2. サーバー（Render）へ電波を繋ぐ
+    const socket = io("https://kasugasansumulti.onrender.com", {
+      transports: ['polling', 'websocket']
+    });
 
-  // 3. ログインプロバイダーの選択関数
-  function selectProvider(provider, element) {
-    document.querySelectorAll('.provider-btn').forEach(btn => btn.classList.remove('selected'));
-    element.classList.add('selected');
-    selectedProvider = provider; // ここでエラーが起きなくなります！
-  }
-
-  // 4. サーバーへログインリクエストを送信する関数
-  async function requestLogin() {
-    const username = document.getElementById('username-input').value.trim();
-    if (!selectedProvider) return alert('サインイン方法を選択してください');
-    if (!username) return alert('ユーザー名を入力してください');
-
-    try {
-      // ここもRenderのURLを指定！
-      const response = await fetch('https://kasugasansumulti.onrender.com/auth/mock-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, provider: selectedProvider })
-      });
-      const data = await response.json();
-
-      if (data.success) {
-        currentUser = data.user;
-        setupSNSMainView();
-      }
-    } catch (e) {
-      alert('サーバー接続エラーが発生しました。');
+    // 3. プロバイダー選択処理
+    function selectProvider(provider, element) {
+      document.querySelectorAll('.provider-btn').forEach(btn => btn.classList.remove('selected'));
+      element.add ? element.classList.add('selected') : element.classList.toggle('selected');
+      selectedProvider = provider;
     }
-  }
 
-  // --- 以降の関数（setupSNSMainViewやsocket.onなど）はそのまま後ろに続けてOKです ---
+    // 4. ログインボタン押下時の処理（Renderにまっすぐ通信を飛ばす）
+    async function requestLogin() {
+      const username = document.getElementById('username-input').value.trim();
+      if (!selectedProvider) return alert('サインイン方法を選択してください');
+      if (!username) return alert('ユーザー名を入力してください');
 
-    // SNSメイン画面の起動・初期セットアップ
+      try {
+        const response = await fetch('https://kasugasansumulti.onrender.com/auth/mock-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, provider: selectedProvider })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+          currentUser = data.user;
+          setupSNSMainView();
+        }
+      } catch (e) {
+        alert('サーバー接続エラーが発生しました。Renderの起動を確認してください。');
+      }
+    }
+
+    // 5. SNSメイン画面への切り替え
     function setupSNSMainView() {
       document.getElementById('login-screen').classList.remove('active');
       document.getElementById('main-screen').classList.add('active');
@@ -139,11 +127,10 @@
       document.getElementById('header-username').innerText = currentUser.name;
       document.getElementById('header-provider').innerText = `${currentUser.provider.toUpperCase()} アカウントで接続中`;
 
-      // 脳みそ（Socketサーバー）へログイン完了情報を流す
       socket.emit('user-join-sns', currentUser);
     }
 
-    // メッセージの送信
+    // 6. メッセージの送信
     function sendPost() {
       const input = document.getElementById('post-input');
       const text = input.value.trim();
@@ -152,12 +139,12 @@
       input.value = '';
     }
 
-    // リアクションボタンのトリガー（Love / Favo）
+    // 7. いいね・お気に入りボタンのトリガー
     function toggleReaction(type, postId) {
       socket.emit(`toggle-${type}`, postId);
     }
 
-    // タイムラインカードDOM生成ヘルパー
+    // 8. 投稿カード生成
     function createPostDOM(post) {
       const isLoved = post.loves.includes(currentUser.id);
       const isFavobed = post.favos.includes(currentUser.id);
@@ -187,9 +174,7 @@
       return card;
     }
 
-    // --- Socket.io リアルタイムリスナー受信処理 ---
-
-    // 過去ログの一斉読み込み
+    // --- Socket.io 受信イベント群 ---
     socket.on('load-timeline', (posts) => {
       const tl = document.getElementById('timeline');
       tl.innerHTML = '';
@@ -197,14 +182,12 @@
       tl.scrollTop = tl.scrollHeight;
     });
 
-    // 誰かの新規投稿をタイムラインの末尾に結合
     socket.on('broadcast-post', (post) => {
       const tl = document.getElementById('timeline');
       tl.appendChild(createPostDOM(post));
-      tl.scrollTop = tl.scrollHeight; // 自動最下部スクロール
+      tl.scrollTop = tl.scrollHeight;
     });
 
-    // いいね・お気に入りの状態が変化したカードの部分的・リアルタイム更新
     socket.on('update-post-status', (updatedPost) => {
       const oldCard = document.getElementById(updatedPost.id);
       if (oldCard) {
@@ -213,7 +196,6 @@
       }
     });
 
-    // システム割り込み通知
     socket.on('system-message', (msg) => {
       const tl = document.getElementById('timeline');
       const div = document.createElement('div');
