@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Kasuga Multi-SNS</title>
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #eef2f5; margin: 0; padding: 0; display: flex; justify-content: center; }
     .app-container { width: 100%; max-width: 600px; background: white; min-height: 100vh; box-shadow: 0 0 10px rgba(0,0,0,0.05); display: flex; flex-direction: column; }
@@ -87,46 +87,48 @@
 
   </div>
 
-  <script>
-    // GitHub Pages / Render 間のクロスドメインプロトコル自動救済設定
-    // ネットに公開する時は、RenderのURLを直接指定します！
-const socket = io("https://kasugasansumulti.onrender.com", { 
-  transports: ['polling', 'websocket'] 
-});
+<script>
+  // 1. 変数の定義と初期化を「一番最初」に書く（これでエラーが消えます）
+  let selectedProvider = '';
+  let currentUser = null;
 
-    let selectedProvider = '';
-    let currentUser = null;
+  // 2. 通信先の設定（RenderのURLを指定）
+  const socket = io("https://kasugasansumulti.onrender.com", { 
+    transports: ['polling', 'websocket'] 
+  });
 
-    // ログインプロバイダーの選択
-    function selectProvider(provider, element) {
-      document.querySelectorAll('.provider-btn').forEach(btn => btn.classList.remove('selected'));
-      element.classList.add('selected');
-      selectedProvider = provider;
-    }
+  // 3. ログインプロバイダーの選択関数
+  function selectProvider(provider, element) {
+    document.querySelectorAll('.provider-btn').forEach(btn => btn.classList.remove('selected'));
+    element.classList.add('selected');
+    selectedProvider = provider; // ここでエラーが起きなくなります！
+  }
 
-    // サーバーへログインリクエストを送信
-    async function requestLogin() {
-      const username = document.getElementById('username-input').value.trim();
-      if (!selectedProvider) return alert('サインイン方法を選択してください');
-      if (!username) return alert('ユーザー名を入力してください');
+  // 4. サーバーへログインリクエストを送信する関数
+  async function requestLogin() {
+    const username = document.getElementById('username-input').value.trim();
+    if (!selectedProvider) return alert('サインイン方法を選択してください');
+    if (!username) return alert('ユーザー名を入力してください');
 
-try {
-        // 🧠 頭にRenderのサーバーURLをきっちり指定してあげます！
-        const response = await fetch('https://kasugasansumulti.onrender.com/auth/mock-login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, provider: selectedProvider })
-        });
-        const data = await response.json();
-        
-        if (data.success) {
-          currentUser = data.user;
-          setupSNSMainView();
-        }
-      } catch (e) {
-        alert('サーバー接続エラーが発生しました。');
+    try {
+      // ここもRenderのURLを指定！
+      const response = await fetch('https://kasugasansumulti.onrender.com/auth/mock-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, provider: selectedProvider })
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        currentUser = data.user;
+        setupSNSMainView();
       }
+    } catch (e) {
+      alert('サーバー接続エラーが発生しました。');
     }
+  }
+
+  // --- 以降の関数（setupSNSMainViewやsocket.onなど）はそのまま後ろに続けてOKです ---
 
     // SNSメイン画面の起動・初期セットアップ
     function setupSNSMainView() {
