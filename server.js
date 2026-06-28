@@ -1,254 +1,206 @@
 const express = require('express');
-const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 const { Pool } = require('pg');
+const cors = require('cors');
 
 const app = express();
+app.use(cors());
+app.use(express.json({ limit: '10mb' })); // 👈 重要なポイント：Base64の重い画像データを受け取れるように制限を拡張！
+
+// UptimeRobotのHEADリクエストを正常（200 OK）として受け取る設定（これで404対策もバッチリ！）
+app.head('/', (req, res) => res.status(200).end());
+app.get('/', (req, res) => res.send('SNS Server is running!'));
+
 const server = http.createServer(app);
-
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
-
-app.use(cors({
-  origin: '*', 
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type']
-}));
-
 const io = new Server(server, {
-  maxHttpBufferSize: 5e7, 
-  cors: { origin: "*", methods: ["GET", "POST"] },
-  transports: ['polling', 'websocket']
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
 });
 
-const PORT = process.env.PORT || 10000;
-
-// ------------------------------------------------------------
-// 🛠️ PostgreSQL データベース接続設定
-// ------------------------------------------------------------
+// 🐘 データベース接続設定 (Render Postgres)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
+  ssl: { rejectUnauthorized: false }
 });
 
-// 🔄 エラーの元になるコメント文を完全に排除したテーブル作成処理
+// 🛠️ データベースの初期化（画像用のカラム "image" がなければ自動追加する）
 async function initDB() {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS posts (
-        id VARCHAR(50) PRIMARY KEY,
-        user_id VARCHAR(50),
-        user_name VARCHAR(50),
-        user_provider VARCHAR(30),
-        user_avatar TEXT,
-        text TEXT,
-        media_url TEXT,
-        media_type VARCHAR(20),
-        timestamp VARCHAR(20),
-        loves TEXT DEFAULT '[]',
-        favos TEXT DEFAULT '[]',
-        shares TEXT DEFAULT '[]',
-        is_share BOOLEAN DEFAULT FALSE,
-        sharer_name VARCHAR(50) DEFAULT ''
-      );
-    `);
-    console.log("SQL Database Tables initialized successfully!");
-  } catch (err) {
-    console.error("Error initializing database tables:", err);
-  }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS posts (
+      id TEXT PRIMARY KEY,
+      username TEXT,
+      provider TEXT,
+      avatar TEXT,
+      text TEXT,
+      image TEXT, -- 👈 ここにBase64の画像文字列がそのまま保存されます
+      timestamp TEXT,
+      loves TEXT[] DEFAULT '{}',
+      favos TEXT[] DEFAULT '{}'
+    )
+  `);
 }
-initDB();
+initDB().catch(console.error);
 
-const AVATARS = {
-  google: 'https://api.dicebear.com/7.x/bottts/svg?seed=Google',
-  apple: 'https://api.dicebear.com/7.x/bottts/svg?seed=Apple',
-  microsoft: 'https://api.dicebear.com/7.x/bottts/svg?seed=Microsoft',
-  clever: 'https://api.dicebear.com/7.x/bottts/svg?seed=Clever',
-  github: 'https://api.dicebear.com/7.x/bottts/svg?seed=GitHub',
-  hotmail: 'https://api.dicebear.com/7.x/bottts/svg?seed=Hotmail'
-};
-
-app.post('/auth/mock-login', (req, res) => {
-  const { username, provider } = req.body;
-  if (!username || !provider) return res.status(400).json({ success: false });
-
-  const user = {
-    id: 'user_' + Math.random().toString(36).substr(2, 9),
-    name: username,
-    provider: provider,
-    avatar: AVATARS[provider] || 'https://api.dicebear.com/7.x/bottts/svg?seed=Unknown'
-  };
-  res.json({ success: true, user });
-});
-
+// 🔌 Socket.io リアルタイム通信の処理
 io.on('connection', (socket) => {
   let activeUser = null;
 
+  // 1. ユーザーがSNSに参加した時（過去のタイムラインを全送信）
   socket.on('user-join-sns', async (user) => {
     activeUser = user;
     try {
-      const result = await pool.query('SELECT * FROM posts');
-      const formattedPosts = result.rows.map(row => ({
+      const res = await pool.query('SELECT * FROM posts ORDER BY timestamp ASC');
+      // データベースから取得したデータをフロントエンドが読める形に整形
+      const posts = res.rows.map(row => ({
         id: row.id,
-        user: { id: row.user_id, name: row.user_name, provider: row.user_provider, avatar: row.user_avatar },
+        user: { name: row.username, provider: row.provider, avatar: row.avatar },
         text: row.text,
-        mediaUrl: row.media_url,
-        mediaType: row.media_type,
+        image: row.image, // 👈 画像データもタイムラインに載せる
         timestamp: row.timestamp,
-        loves: JSON.parse(row.loves || '[]'),
-        favos: JSON.parse(row.favos || '[]'),
-        shares: JSON.parse(row.shares || '[]'),
-        isShare: row.is_share,
-        sharerName: row.sharer_name
+        loves: row.loves || [],
+        favos: row.favos || []
       }));
-      socket.emit('load-timeline', formattedPosts);
-    } catch (err) {
-      console.error(err);
-    }
-    io.emit('system-message', `${user.name} が参加しました。`);
-  });
-
-  socket.on('update-profile', async (updatedUser) => {
-    if (!activeUser) return;
-    activeUser.avatar = updatedUser.avatar;
-    try {
-      await pool.query('UPDATE posts SET user_avatar = $1 WHERE user_id = $2', [activeUser.avatar, activeUser.id]);
-      const result = await pool.query('SELECT * FROM posts');
-      const formattedPosts = result.rows.map(row => ({
-        id: row.id, text: row.text, mediaUrl: row.media_url, mediaType: row.media_type, timestamp: row.timestamp,
-        user: { id: row.user_id, name: row.user_name, provider: row.user_provider, avatar: row.user_avatar },
-        loves: JSON.parse(row.loves || '[]'), favos: JSON.parse(row.favos || '[]'), shares: JSON.parse(row.shares || '[]'), isShare: row.is_share, sharerName: row.sharer_name
-      }));
-      io.emit('load-timeline', formattedPosts);
+      socket.emit('load-timeline', posts);
     } catch (err) {
       console.error(err);
     }
   });
 
-  socket.on('new-post', async (postData) => {
+  // 2. 新しい投稿（文字＋画像）が送られてきた時の処理
+  socket.on('new-post', async (data) => {
     if (!activeUser) return;
+
+    // 文字列単体で送られてきた場合と、オブジェクト{text, image}で送られてきた場合の両方に対応
+    const postText = typeof data === 'string' ? data : (data.text || '');
+    const postImage = typeof data === 'object' ? (data.image || null) : null;
+
     const newPost = {
-      id: 'post_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-      user: { ...activeUser },
-      text: postData.text,
-      mediaUrl: postData.mediaUrl,
-      mediaType: postData.mediaType,
+      id: 'post_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+      user: activeUser,
+      text: postText,
+      image: postImage, // 👈 これで画像データが入る
       timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }),
       loves: [],
-      favos: [],
-      shares: []
+      favos: []
     };
+
     try {
+      // データベースに保存
       await pool.query(
-        `INSERT INTO posts (id, user_id, user_name, user_provider, user_avatar, text, media_url, media_type, timestamp, loves, favos, shares) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        `INSERT INTO posts (id, username, provider, avatar, text, image, timestamp, loves, favos) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
-          newPost.id, newPost.user.id, newPost.user.name, newPost.user.provider, newPost.user.avatar,
-          newPost.text, newPost.mediaUrl, newPost.mediaType, newPost.timestamp,
-          JSON.stringify(newPost.loves), JSON.stringify(newPost.favos), JSON.stringify(newPost.shares)
+          newPost.id, 
+          newPost.user.name, 
+          newPost.user.provider, 
+          newPost.user.avatar, 
+          newPost.text, 
+          newPost.image, // $6 
+          newPost.timestamp, 
+          [], 
+          []
         ]
       );
+      // 全員にリアルタイムで拡散！
       io.emit('broadcast-post', newPost);
-    } catch (err) {
-      console.error("SQL Insert Error:", err);
-    }
-  });
-
-  socket.on('share-post', async (postId) => {
-    if (!activeUser) return;
-    try {
-      const selectResult = await pool.query('SELECT * FROM posts WHERE id = $1', [postId]);
-      if (selectResult.rows.length === 0) return;
-      const row = selectResult.rows[0];
-      let shares = JSON.parse(row.shares || '[]');
-      if (shares.includes(activeUser.id)) return;
-      shares.push(activeUser.id);
-      await pool.query('UPDATE posts SET shares = $1 WHERE id = $2', [JSON.stringify(shares), postId]);
-
-      const shareId = 'share_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-      const timestamp = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-      await pool.query(
-        `INSERT INTO posts (id, user_id, user_name, user_provider, user_avatar, text, media_url, media_type, timestamp, loves, favos, shares, is_share, sharer_name) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-        [
-          shareId, row.user_id, row.user_name, row.user_provider, row.user_avatar,
-          row.text, row.media_url, row.media_type, timestamp,
-          row.loves, row.favos, JSON.stringify([]), true, activeUser.name
-        ]
-      );
-
-      const refreshResult = await pool.query('SELECT * FROM posts');
-      const formattedPosts = refreshResult.rows.map(r => ({
-        id: r.id, text: r.text, mediaUrl: r.media_url, mediaType: r.media_type, timestamp: r.timestamp,
-        user: { id: r.user_id, name: r.user_name, provider: r.user_provider, avatar: r.user_avatar },
-        loves: JSON.parse(r.loves || '[]'), favos: JSON.parse(r.favos || '[]'), shares: JSON.parse(r.shares || '[]'), isShare: r.is_share, sharerName: r.sharer_name
-      }));
-      io.emit('load-timeline', formattedPosts);
     } catch (err) {
       console.error(err);
     }
   });
 
+  // 3. ❤️ ボタンの処理
   socket.on('toggle-love', async (postId) => {
     if (!activeUser) return;
     try {
-      const res = await pool.query('SELECT * FROM posts WHERE id = $1', [postId]);
-      if (res.rows.length > 0) {
-        const row = res.rows[0];
-        let loves = JSON.parse(row.loves || '[]');
-        const index = loves.indexOf(activeUser.id);
-        index === -1 ? loves.push(activeUser.id) : loves.splice(index, 1);
-        await pool.query('UPDATE posts SET loves = $1 WHERE id = $2', [JSON.stringify(loves), postId]);
-        const updatedPost = {
-          id: row.id, text: row.text, mediaUrl: row.media_url, mediaType: row.media_type, timestamp: row.timestamp,
-          user: { id: row.user_id, name: row.user_name, provider: row.user_provider, avatar: row.user_avatar },
-          loves: loves, favos: JSON.parse(row.favos || '[]'), shares: JSON.parse(row.shares || '[]'), isShare: row.is_share, sharerName: row.sharer_name
-        };
-        io.emit('update-post-status', updatedPost);
+      const res = await pool.query('SELECT loves FROM posts WHERE id = $1', [postId]);
+      if (res.rows.length === 0) return;
+      let loves = res.rows[0].loves || [];
+
+      if (loves.includes(activeUser.id)) {
+        loves = loves.filter(id => id !== activeUser.id);
+      } else {
+        loves.push(activeUser.id);
       }
+
+      await pool.query('UPDATE posts SET loves = $1 WHERE id = $2', [loves, postId]);
+      updatePostStatus(postId);
     } catch (err) {
       console.error(err);
     }
   });
 
+  // 4. ⭐ ボタンの処理
   socket.on('toggle-favo', async (postId) => {
     if (!activeUser) return;
+    try {
+      const res = await pool.query('SELECT favos FROM posts WHERE id = $1', [postId]);
+      if (res.rows.length === 0) return;
+      let favos = res.rows[0].favos || [];
+
+      if (favos.includes(activeUser.id)) {
+        favos = favos.filter(id => id !== activeUser.id);
+      } else {
+        favos.push(activeUser.id);
+      }
+
+      await pool.query('UPDATE posts SET favos = $1 WHERE id = $2', [favos, postId]);
+      updatePostStatus(postId);
+    } catch (err) {
+      console.error(err);
+    }
+  });
+
+  // 状態更新を全員に通知するヘルパー関数
+  async function updatePostStatus(postId) {
     try {
       const res = await pool.query('SELECT * FROM posts WHERE id = $1', [postId]);
       if (res.rows.length > 0) {
         const row = res.rows[0];
-        let favos = JSON.parse(row.favos || '[]');
-        const index = favos.indexOf(activeUser.id);
-        index === -1 ? favos.push(activeUser.id) : favos.splice(index, 1);
-        await pool.query('UPDATE posts SET favos = $1 WHERE id = $2', [JSON.stringify(favos), postId]);
         const updatedPost = {
-          id: row.id, text: row.text, mediaUrl: row.media_url, mediaType: row.media_type, timestamp: row.timestamp,
-          user: { id: row.user_id, name: row.user_name, provider: row.user_provider, avatar: row.user_avatar },
-          loves: JSON.parse(row.loves || '[]'), favos: favos, shares: JSON.parse(row.shares || '[]'), isShare: row.is_share, sharerName: row.sharer_name
+          id: row.id,
+          user: { name: row.username, provider: row.provider, avatar: row.avatar },
+          text: row.text,
+          image: row.image,
+          timestamp: row.timestamp,
+          loves: row.loves || [],
+          favos: row.favos || []
         };
         io.emit('update-post-status', updatedPost);
       }
     } catch (err) {
       console.error(err);
     }
-  });
-
-  socket.on('request-timeline-refresh', async () => {
-    const result = await pool.query('SELECT * FROM posts');
-    const formattedPosts = result.rows.map(row => ({
-      id: row.id, text: row.text, mediaUrl: row.media_url, mediaType: row.media_type, timestamp: row.timestamp,
-      user: { id: row.user_id, name: row.user_name, provider: row.user_provider, avatar: row.user_avatar },
-      loves: JSON.parse(row.loves || '[]'), favos: JSON.parse(row.favos || '[]'), shares: JSON.parse(row.shares || '[]'), isShare: row.is_share, sharerName: row.sharer_name
-    }));
-    socket.emit('load-timeline', formattedPosts);
-  });
+  }
 
   socket.on('disconnect', () => {
-    if (activeUser) io.emit('system-message', `${activeUser.name} が退室しました。`);
+    if (activeUser) {
+      io.emit('system-message', `${activeUser.name} が切断しました`);
+    }
   });
 });
 
-server.listen(PORT, () => console.log(`SNS Server running on port ${PORT}`));
+// 🔑 ログイン用モックAPI
+app.post('/auth/mock-login', (req, res) => {
+  const { username, provider } = req.body;
+  if (!username || !provider) {
+    return res.status(400).json({ success: false, message: 'Missing fields' });
+  }
+  const userId = 'user_' + Math.random().toString(36).substr(2, 9);
+  res.json({
+    success: true,
+    user: {
+      id: userId,
+      name: username,
+      provider: provider,
+      avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(username)}`
+    }
+  });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server executing tightly on port ${PORT}`);
+});
