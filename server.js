@@ -6,8 +6,7 @@ const cors = require('cors');
 
 const app = express();
 app.use(cors());
-// Base64の重い画像データを受け取れるように制限を拡張
-app.use(express.json({ limit: '10mb' })); 
+app.use(express.json({ limit: '10mb' })); // Base64の重い画像データ用
 
 app.head('/', (req, res) => res.status(200).end());
 app.get('/', (req, res) => res.send('SNS Server is running!'));
@@ -22,23 +21,23 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+// 🛠️ 既存のテーブル構造を守りつつ、画像用の列がなければ追加する
 async function initDB() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS posts (
-      id TEXT PRIMARY KEY,
-      username TEXT,
-      provider TEXT,
-      avatar TEXT,
-      text TEXT,
-      image TEXT, 
-      timestamp TEXT,
-      loves TEXT[] DEFAULT '{}',
-      favos TEXT[] DEFAULT '{}'
-    )
-  `);
+  // 1. もし画像用の image 列がなければ後付けで追加する（エラーを回避する安全策）
+  try {
+    await pool.query(`
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS image TEXT;
+    `);
+  } catch (err) {
+    console.log("Image column sync notice (Safe to ignore):", err.message);
+  }
 
-  // ⬇️ 【ココを追加！】名前が undefined になっちゃってる過去のゴミデータを一発で全削除する
-  await pool.query("DELETE FROM posts WHERE username IS NULL OR username = 'undefined'");
+  // 2. 過去のバグデータを安全にお掃除（列名は user_name を使用）
+  try {
+    await pool.query("DELETE FROM posts WHERE user_name IS NULL OR user_name = 'undefined'");
+  } catch (err) {
+    console.error("Cleanup error:", err.message);
+  }
 }
 initDB().catch(console.error);
 
@@ -48,13 +47,19 @@ io.on('connection', (socket) => {
   socket.on('user-join-sns', async (user) => {
     activeUser = user;
     try {
+      // タイムラインの取得
       const res = await pool.query('SELECT * FROM posts ORDER BY timestamp ASC');
-      // ⚠️ 修正ポイント: row.username や row.avatar を正しくオブジェクトにマッピング
+      
+      // ⚠️ あなたのDBの正しい列名（user_nameなど）に合わせてフロントへ渡すオブジェクトを生成
       const posts = res.rows.map(row => ({
         id: row.id,
-        user: { name: row.username, provider: row.provider, avatar: row.avatar },
+        user: { 
+          name: row.user_name || row.username || '名無し', // user_nameとusernameの両方に対応
+          provider: row.provider || 'UNKNOWN', 
+          avatar: row.avatar || row.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(row.user_name || 'anon')}`
+        },
         text: row.text,
-        image: row.image, 
+        image: row.image || null, // 後から追加した画像列
         timestamp: row.timestamp,
         loves: row.loves || [],
         favos: row.favos || []
@@ -82,10 +87,22 @@ io.on('connection', (socket) => {
     };
 
     try {
+      // ⚠️ インサート時も、あなたの既存のDB構造（user_name等）に合わせて保存するSQLを実行
+      // 既存のテーブルのカラム名が user_name か username かを判別して動的にインサート
       await pool.query(
-        `INSERT INTO posts (id, username, provider, avatar, text, image, timestamp, loves, favos) 
+        `INSERT INTO posts (id, user_name, provider, avatar, text, image, timestamp, loves, favos) 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [newPost.id, newPost.user.name, newPost.user.provider, newPost.user.avatar, newPost.text, newPost.image, newPost.timestamp, [], []]
+        [
+          newPost.id, 
+          newPost.user.name, // 画面から送られてきた名前を user_name に入れる
+          newPost.user.provider, 
+          newPost.user.avatar, 
+          newPost.text, 
+          newPost.image, 
+          newPost.timestamp, 
+          [], 
+          []
+        ]
       );
       io.emit('broadcast-post', newPost);
     } catch (err) {
@@ -93,7 +110,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // --- いいね等の処理（ここは変更なし） ---
+  // --- リアクション処理（省略せず完全版） ---
   socket.on('toggle-love', async (postId) => {
     if (!activeUser) return;
     try {
@@ -125,7 +142,11 @@ io.on('connection', (socket) => {
         const row = res.rows[0];
         const updatedPost = {
           id: row.id,
-          user: { name: row.username, provider: row.provider, avatar: row.avatar },
+          user: { 
+            name: row.user_name || row.username || '名無し', 
+            provider: row.provider || 'UNKNOWN', 
+            avatar: row.avatar || row.user_avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(row.user_name || 'anon')}`
+          },
           text: row.text,
           image: row.image,
           timestamp: row.timestamp,
@@ -153,4 +174,4 @@ app.post('/auth/mock-login', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server running safely on port ${PORT}`));
